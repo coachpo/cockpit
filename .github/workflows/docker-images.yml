@@ -54,6 +54,14 @@ jobs:
           submodules: recursive
           fetch-depth: 1
 
+      - name: Sync submodules
+        run: |
+          git submodule sync --recursive
+          git submodule update --init --recursive --depth 1
+          test -f backend/go.mod
+          test -d backend/cmd/cockpit
+          test -f frontend/package.json
+
       - name: Set up QEMU (for arm64 emulation)
         uses: docker/setup-qemu-action@v3
 
