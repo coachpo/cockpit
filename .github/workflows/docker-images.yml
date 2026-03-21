@@ -100,7 +100,26 @@ jobs:
           echo "git_revision=$(git -C frontend rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
           echo "git_run_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image (linux/arm64)
+      - name: Build and push backend Docker image (linux/arm64)
+        if: matrix.service == 'backend'
+        uses: docker/build-push-action@v7
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          context: ./${{ matrix.service }}
+          file: ./${{ matrix.service }}/Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=${{ matrix.service }}
+          cache-to: |
+            type=gha,scope=${{ matrix.service }},mode=max
+          platforms: ${{ env.BUILD_PLATFORM }}
+          provenance: false
+          sbom: false
+
+      - name: Build and push frontend Docker image (linux/arm64)
+        if: matrix.service == 'frontend'
         uses: docker/build-push-action@v7
         with:
           builder: ${{ steps.buildx.outputs.name }}
