@@ -1,0 +1,20 @@
+# Root meta-repo local state
+.sisyphus/
+authjson/
+docs/
+test-output
+
+# Editor and tool state
+.vscode/
+.idea/
+.codex/
+.claude/
+.gemini/
+.serena/
+.agent/
+.agents/
+.opencode/
+
+# OS files
+.DS_Store
+._*
