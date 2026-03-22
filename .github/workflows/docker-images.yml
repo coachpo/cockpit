@@ -3,16 +3,16 @@ name: Docker Images
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ["v*"]
   pull_request:
     branches: [main]
     paths:
-      - 'backend'
-      - 'backend/**'
-      - 'frontend'
-      - 'frontend/**'
-      - '.github/workflows/docker-images.yml'
-      - '.gitmodules'
+      - "backend"
+      - "backend/**"
+      - "frontend"
+      - "frontend/**"
+      - ".github/workflows/docker-images.yml"
+      - ".gitmodules"
   workflow_dispatch:
     inputs:
       service:
@@ -30,7 +30,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
   REGISTRY: ghcr.io
   IMAGE_NAME_BACKEND: ${{ github.event.repository.name }}-backend
   IMAGE_NAME_FRONTEND: ${{ github.event.repository.name }}-frontend
