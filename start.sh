@@ -298,9 +298,14 @@ write_backend_config() {
 host: "${BACKEND_HOST}"
 port: ${BACKEND_PORT}
 auth-dir: "${BACKEND_AUTH_DIR}"
-request-log: true
 remote-management:
   allow-remote: false
+  secret-key: "${LOCAL_MANAGEMENT_PASSWORD}"
+request-retry: 3
+max-retry-interval: 30
+routing:
+  strategy: "round-robin"
+ws-auth: false
 EOF
 }
 
@@ -374,8 +379,8 @@ wait_for_frontend_ready() {
 
 frontend_proxy_running() {
   curl --silent --show-error --fail --max-time 2 \
-    -H "X-Management-Key: ${LOCAL_MANAGEMENT_PASSWORD}" \
-    "${FRONTEND_URL}/v0/management/request-log" 2>/dev/null | grep -F 'request-log' >/dev/null 2>&1
+    -H "Authorization: Bearer ${LOCAL_MANAGEMENT_PASSWORD}" \
+    "${FRONTEND_URL}/v0/management/ws-auth" 2>/dev/null | grep -F 'ws-auth' >/dev/null 2>&1
 }
 
 wait_for_frontend_proxy_ready() {
@@ -458,8 +463,11 @@ main() {
   printf 'Starting backend on %s\n' "$BACKEND_URL"
   (
     cd "$RUNTIME_DIR"
-    export MANAGEMENT_PASSWORD="$LOCAL_MANAGEMENT_PASSWORD"
-    unset DEPLOY NACOS_ADDR NACOS_NAMESPACE NACOS_GROUP NACOS_USERNAME NACOS_PASSWORD NACOS_CACHE_DIR
+    if [[ -n "${NACOS_ADDR:-}" ]]; then
+      export NACOS_ADDR="${NACOS_ADDR#http://}"
+      export NACOS_ADDR="${NACOS_ADDR#https://}"
+      export NACOS_ADDR="${NACOS_ADDR%/}"
+    fi
     exec "$BACKEND_BIN"
   ) >"$BACKEND_LOG" 2>&1 &
   backend_pid=$!
