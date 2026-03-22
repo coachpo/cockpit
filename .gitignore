@@ -3,6 +3,7 @@
 authjson/
 docs/
 test-output
+deploy/.env
 
 # Editor and tool state
 .vscode/
