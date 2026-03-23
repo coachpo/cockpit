@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-23T02:08:08+02:00
-**Commit:** e74897bb
+**Generated:** 2026-03-23T15:48:02+02:00
+**Commit:** e9ef68af
 **Branch:** main
 
 ## OVERVIEW
@@ -34,14 +34,15 @@ Read the nearest `AGENTS.md` first. Root routes work into submodules; child file
 | Local compose/nginx deployment wiring | `deploy/AGENTS.md` | owns `docker-compose.yml`, `nginx.conf`, and deploy env bootstrap |
 | Shared image publishing | `.github/workflows/docker-images.yml` | builds both submodules from their own Dockerfiles |
 | Package cleanup automation | `.github/workflows/cleanup.yml` | prunes workflow runs and untagged GHCR images |
-| Local full-stack startup | `start.sh` | builds backend, starts Vite dev server, and waits for proxy health |
+| Local full-stack startup | `start.sh` | seeds local Nacos, builds backend, starts Vite dev server, and writes runtime state under `.sisyphus/local-start` |
 | Submodule URL or branch drift | `.gitmodules` | both submodules stay pinned to `main` |
 
 ## ROOT CONVENTIONS
 - Do not add application source code at the root; service code belongs in `backend/` or `frontend/`.
 - Root workflows may orchestrate both services, but service-specific CI belongs in each submodule's own `.github/workflows/` directory.
 - Keep `.gitmodules` aligned with `coachpo/cockpit-backend` and `coachpo/cockpit-frontend`, both on `main`.
-- Treat `authjson/`, `docs/`, and `.sisyphus/` as local-only state. They are gitignored helpers, not canonical checked-in documentation.
+- Treat `authjson/`, `docs/`, `.sisyphus/`, `test-output`, and `deploy/.env` as local-only state. They are gitignored helpers, not canonical checked-in documentation.
+- Treat editor and agent-tool directories like `.vscode/`, `.idea/`, `.codex/`, `.claude/`, `.gemini/`, `.serena/`, `.agent/`, `.agents/`, and `.opencode/` as workstation-local noise, not repo content.
 - Verify root paths and commands against the current repo state before relying on them; this file is a routing layer, not a second copy of child docs.
 - Prefer updating submodule-local docs over expanding the root file with service-specific detail.
 - Do not duplicate backend/frontend build, test, or architecture rules here; keep those in the child `AGENTS.md` files.
@@ -59,3 +60,4 @@ git -C frontend status --short
 - The root README is the quick start for humans; AGENTS files are the high-signal routing layer for agentic work.
 - Root docker publishing passes through submodule Dockerfiles instead of owning service build logic itself.
 - `deploy/` is the root-owned deployment seam; service-local runtime behavior still belongs in each submodule.
+- `start.sh` keeps local runtime logs, auth bootstrap, and generated config under `.sisyphus/local-start/`; do not treat that output as checked-in source.
