@@ -8,7 +8,7 @@ Root-owned local deployment seam. This folder wires the published backend/fronte
 ## WHERE TO LOOK
 - `docker-compose.yml`: three-container stack; bootstraps backend config into `/data/config.yaml`, runs backend + frontend + nginx.
 - `env.example`: deployment env template for `DEPLOY`, `MANAGEMENT_PASSWORD`, and optional Nacos bootstrap.
-- `nginx.conf`: reverse proxy for `/v0/management`, `/v1/`, `/api/provider/`, `/codex/callback`, and `/`.
+- `nginx.conf`: reverse proxy for `/v0/management`, `/v1/`, `/api/provider/`, and `/`, while `/codex/callback` remains frontend-owned through the SPA.
 
 ## LOCAL CONVENTIONS
 - Keep this folder root-owned. Service-local runtime behavior still belongs in `backend/` or `frontend/`.
