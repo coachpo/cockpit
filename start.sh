@@ -8,19 +8,27 @@ FRONTEND_DIR="$ROOT_DIR/frontend"
 RUNTIME_DIR="$ROOT_DIR/.sisyphus/local-start"
 BACKEND_BIN="$RUNTIME_DIR/cockpit"
 BACKEND_CONFIG="$RUNTIME_DIR/config.yaml"
+BACKEND_AUTH_BOOTSTRAP="$RUNTIME_DIR/auth-credentials.json"
 RUNTIME_ENV_FILE="$RUNTIME_DIR/.env"
 BACKEND_AUTH_DIR="$RUNTIME_DIR/auth"
 BACKEND_LOG="$RUNTIME_DIR/backend.log"
 FRONTEND_LOG="$RUNTIME_DIR/frontend.log"
+BACKEND_COMPOSE_FILE="$BACKEND_DIR/docker-compose.yml"
+NACOS_CONFIG_DATA_ID="proxy-config"
+NACOS_AUTH_DATA_ID="auth-credentials"
+NACOS_PORT="8848"
+NACOS_GRPC_PORT="9848"
 
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-38317}"
 FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${FRONTEND_PORT:-35173}"
-LOCAL_MANAGEMENT_PASSWORD="${LOCAL_MANAGEMENT_PASSWORD:-local-dev-management}"
-NACOS_ADDR="${NACOS_ADDR:-192.168.1.222:8848}"
-NACOS_USERNAME="${NACOS_USERNAME:-nacos}"
-NACOS_PASSWORD="${NACOS_PASSWORD:-1111}"
+NACOS_ADDR="${NACOS_ADDR:-}"
+NACOS_NAMESPACE="${NACOS_NAMESPACE:-public}"
+NACOS_GROUP="${NACOS_GROUP:-DEFAULT_GROUP}"
+NACOS_USERNAME="${NACOS_USERNAME:-}"
+NACOS_PASSWORD="${NACOS_PASSWORD:-}"
+NACOS_CACHE_DIR="${NACOS_CACHE_DIR:-$RUNTIME_DIR/nacos-cache}"
 
 BACKEND_PUBLIC_HOST=""
 FRONTEND_PUBLIC_HOST=""
@@ -31,6 +39,7 @@ backend_pid=""
 frontend_pid=""
 backend_started=0
 frontend_started=0
+nacos_started=0
 cleanup_done=0
 
 PNPM_CMD=()
@@ -50,6 +59,13 @@ require_command() {
 
   if ! command -v "$command_name" >/dev/null 2>&1; then
     printf '%s is required but was not found.\n' "$command_name" >&2
+    exit 1
+  fi
+}
+
+require_docker_compose() {
+  if ! docker compose version >/dev/null 2>&1; then
+    printf 'docker compose is required but was not found.\n' >&2
     exit 1
   fi
 }
@@ -124,7 +140,7 @@ warn_if_backend_is_exposed() {
     127.0.0.1|localhost)
       ;;
     *)
-      printf 'Warning: BACKEND_HOST=%s exposes management routes beyond localhost while MANAGEMENT_PASSWORD is enabled.\n' "$BACKEND_HOST" >&2
+      printf 'Warning: BACKEND_HOST=%s exposes management routes beyond localhost.\n' "$BACKEND_HOST" >&2
       ;;
   esac
 }
@@ -144,6 +160,23 @@ probe_host() {
 
 docker_daemon_available() {
   command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
+}
+
+docker_compose_backend() {
+  docker compose -f "$BACKEND_COMPOSE_FILE" "$@"
+}
+
+normalize_nacos_addr() {
+  local addr=$1
+
+  addr="${addr#http://}"
+  addr="${addr#https://}"
+  addr="${addr%/}"
+  printf '%s' "$addr"
+}
+
+nacos_base_url() {
+  printf 'http://%s' "$NACOS_ADDR"
 }
 
 port_is_listening() {
@@ -267,6 +300,18 @@ stop_existing_stack() {
   done
 }
 
+stop_existing_nacos() {
+  local port
+
+  for port in "$NACOS_PORT" "$NACOS_GRPC_PORT"; do
+    stop_docker_containers_publishing_port "$port"
+  done
+
+  for port in "$NACOS_PORT" "$NACOS_GRPC_PORT"; do
+    kill_port_listeners "$port"
+  done
+}
+
 check_required_files() {
   if [[ ! -f "$BACKEND_DIR/go.mod" ]]; then
     printf 'Expected backend Go module at %s\n' "$BACKEND_DIR/go.mod" >&2
@@ -287,13 +332,21 @@ check_required_files() {
     printf 'Frontend dependencies are missing. Run: (cd "%s" && %s install --frozen-lockfile)\n' "$FRONTEND_DIR" "$PNPM_DISPLAY_COMMAND" >&2
     exit 1
   fi
+
+  if [[ ! -f "$BACKEND_COMPOSE_FILE" ]]; then
+    printf 'Expected backend compose file at %s\n' "$BACKEND_COMPOSE_FILE" >&2
+    exit 1
+  fi
 }
 
 prepare_runtime_dir() {
   mkdir -p "$RUNTIME_DIR" "$BACKEND_AUTH_DIR"
   rm -f "$RUNTIME_ENV_FILE"
+  rm -rf "$NACOS_CACHE_DIR"
+  mkdir -p "$NACOS_CACHE_DIR"
   : >"$BACKEND_LOG"
   : >"$FRONTEND_LOG"
+  printf '{}\n' >"$BACKEND_AUTH_BOOTSTRAP"
 }
 
 write_backend_config() {
@@ -301,15 +354,180 @@ write_backend_config() {
 host: "${BACKEND_HOST}"
 port: ${BACKEND_PORT}
 auth-dir: "${BACKEND_AUTH_DIR}"
-remote-management:
-  allow-remote: false
-  secret-key: "${LOCAL_MANAGEMENT_PASSWORD}"
 request-retry: 3
 max-retry-interval: 30
 routing:
   strategy: "round-robin"
 ws-auth: false
 EOF
+}
+
+nacos_ready() {
+  curl --silent --show-error --fail --max-time 2 \
+    "$(nacos_base_url)/nacos/v1/console/health/readiness" >/dev/null 2>&1
+}
+
+wait_for_nacos_ready() {
+  local deadline=$((SECONDS + 60))
+
+  while (( SECONDS < deadline )); do
+    if nacos_ready; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
+publish_nacos_document() {
+  local data_id=$1
+  local data_type=$2
+  local source_file=$3
+  local response
+  local -a curl_args=(
+    --silent
+    --show-error
+    --fail
+    --max-time 10
+    -X POST
+    "$(nacos_base_url)/nacos/v1/cs/configs"
+    --data-urlencode "dataId=${data_id}"
+    --data-urlencode "group=${NACOS_GROUP}"
+    --data-urlencode "type=${data_type}"
+    --data-urlencode "content@${source_file}"
+  )
+
+	if [[ -n "$NACOS_NAMESPACE" && "$NACOS_NAMESPACE" != "public" ]]; then
+	  curl_args+=(--data-urlencode "tenant=${NACOS_NAMESPACE}")
+	fi
+
+	response="$(curl "${curl_args[@]}")" || return 1
+	if [[ "$response" != "true" ]]; then
+	  printf 'Unexpected Nacos publish response for %s: %s\n' "$data_id" "$response" >&2
+	  return 1
+	fi
+
+	return 0
+}
+
+nacos_document_exists() {
+	local data_id=$1
+	local status
+	local -a curl_args=(
+	  --silent
+	  --show-error
+	  --max-time 10
+	  -o /dev/null
+	  -w '%{http_code}'
+	  -G
+	  "$(nacos_base_url)/nacos/v1/cs/configs"
+	  --data-urlencode "dataId=${data_id}"
+	  --data-urlencode "group=${NACOS_GROUP}"
+	)
+
+	if [[ -n "$NACOS_NAMESPACE" && "$NACOS_NAMESPACE" != "public" ]]; then
+	  curl_args+=(--data-urlencode "tenant=${NACOS_NAMESPACE}")
+	fi
+
+	status="$(curl "${curl_args[@]}")" || return 2
+	case "$status" in
+	  200)
+	    return 0
+	    ;;
+	  404)
+	    return 1
+	    ;;
+	  *)
+	    printf 'Unexpected Nacos fetch status for %s: %s\n' "$data_id" "$status" >&2
+	    return 2
+	    ;;
+	esac
+}
+
+fetch_nacos_document() {
+	local data_id=$1
+	local -a curl_args=(
+	  --silent
+	  --show-error
+	  --fail
+	  --max-time 10
+	  -G
+	  "$(nacos_base_url)/nacos/v1/cs/configs"
+	  --data-urlencode "dataId=${data_id}"
+	  --data-urlencode "group=${NACOS_GROUP}"
+	)
+
+	if [[ -n "$NACOS_NAMESPACE" && "$NACOS_NAMESPACE" != "public" ]]; then
+	  curl_args+=(--data-urlencode "tenant=${NACOS_NAMESPACE}")
+	fi
+
+	curl "${curl_args[@]}"
+}
+
+wait_for_nacos_document_content() {
+	local data_id=$1
+	local source_file=$2
+	local deadline=$((SECONDS + 30))
+	local expected_content
+	local actual_content
+
+	expected_content="$(<"$source_file")"
+
+	while (( SECONDS < deadline )); do
+	  actual_content="$(fetch_nacos_document "$data_id" 2>/dev/null || true)"
+	  if [[ "$actual_content" == "$expected_content" ]]; then
+	    return 0
+	  fi
+	  sleep 1
+	done
+
+	return 1
+}
+
+seed_nacos_bootstrap() {
+	local auth_status=0
+
+	if ! publish_nacos_document "$NACOS_CONFIG_DATA_ID" yaml "$BACKEND_CONFIG"; then
+	  fail "Failed to publish backend config to Nacos at $(nacos_base_url)."
+	fi
+	if ! wait_for_nacos_document_content "$NACOS_CONFIG_DATA_ID" "$BACKEND_CONFIG"; then
+	  fail "Published backend config was not readable from Nacos at $(nacos_base_url)."
+	fi
+
+	if nacos_document_exists "$NACOS_AUTH_DATA_ID"; then
+	  return
+	else
+	  auth_status=$?
+	fi
+	if [[ "$auth_status" -ne 1 ]]; then
+	  fail "Failed to inspect auth bootstrap state in Nacos at $(nacos_base_url)."
+	fi
+	if ! publish_nacos_document "$NACOS_AUTH_DATA_ID" json "$BACKEND_AUTH_BOOTSTRAP"; then
+	  fail "Failed to publish empty auth bootstrap to Nacos at $(nacos_base_url)."
+	fi
+}
+
+start_nacos_stack() {
+  if ! docker_daemon_available; then
+    fail "Docker is required and the Docker daemon must be running to start Nacos."
+  fi
+
+  log "Starting local Nacos via $BACKEND_COMPOSE_FILE"
+  docker_compose_backend up -d nacos >/dev/null
+  nacos_started=1
+
+  if ! wait_for_nacos_ready; then
+    fail "Nacos failed to become ready at $(nacos_base_url)."
+  fi
+}
+
+stop_nacos_stack() {
+  if [[ "$nacos_started" -ne 1 ]]; then
+    return
+  fi
+
+  docker_compose_backend stop nacos >/dev/null 2>&1 || true
 }
 
 print_recent_log() {
@@ -382,7 +600,6 @@ wait_for_frontend_ready() {
 
 frontend_proxy_running() {
   curl --silent --show-error --fail --max-time 2 \
-    -H "Authorization: Bearer ${LOCAL_MANAGEMENT_PASSWORD}" \
     "${FRONTEND_URL}/v0/management/ws-auth" 2>/dev/null | grep -F 'ws-auth' >/dev/null 2>&1
 }
 
@@ -427,6 +644,8 @@ cleanup() {
     stop_process "$backend_pid"
   fi
 
+  stop_nacos_stack
+
   stop_existing_stack
 
   exit "$exit_code"
@@ -437,14 +656,18 @@ trap cleanup EXIT INT TERM
 main() {
   require_command bash
   require_command curl
+  require_command docker
   require_command go
   require_command node
   require_command lsof
+  require_docker_compose
   check_go_version
   check_node_version
   resolve_pnpm_cmd
   check_required_files
   warn_if_backend_is_exposed
+
+  NACOS_ADDR="$(normalize_nacos_addr "127.0.0.1:${NACOS_PORT}")"
 
   BACKEND_PUBLIC_HOST="$(probe_host "$BACKEND_HOST")"
   FRONTEND_PUBLIC_HOST="$(probe_host "$FRONTEND_HOST")"
@@ -453,9 +676,13 @@ main() {
 
   printf 'Cleaning up ports %s and %s before startup\n' "$BACKEND_PORT" "$FRONTEND_PORT"
   stop_existing_stack
+  printf 'Cleaning up ports %s and %s before starting local Nacos\n' "$NACOS_PORT" "$NACOS_GRPC_PORT"
+  stop_existing_nacos
 
   prepare_runtime_dir
   write_backend_config
+  start_nacos_stack
+  seed_nacos_bootstrap
 
   printf 'Building backend binary\n'
   (
@@ -463,16 +690,12 @@ main() {
     go build -o "$BACKEND_BIN" ./cmd/cockpit
   )
 
-  printf 'Starting backend on %s\n' "$BACKEND_URL"
-  (
-    cd "$RUNTIME_DIR"
-    if [[ -n "${NACOS_ADDR:-}" ]]; then
-      export NACOS_ADDR="${NACOS_ADDR#http://}"
-      export NACOS_ADDR="${NACOS_ADDR#https://}"
-      export NACOS_ADDR="${NACOS_ADDR%/}"
-    fi
-    exec "$BACKEND_BIN"
-  ) >"$BACKEND_LOG" 2>&1 &
+	printf 'Starting backend on %s\n' "$BACKEND_URL"
+	(
+	  cd "$RUNTIME_DIR"
+	  export NACOS_ADDR NACOS_NAMESPACE NACOS_GROUP NACOS_USERNAME NACOS_PASSWORD NACOS_CACHE_DIR
+	  exec "$BACKEND_BIN"
+	) >"$BACKEND_LOG" 2>&1 &
   backend_pid=$!
   backend_started=1
 
@@ -505,7 +728,6 @@ main() {
   fi
 
   printf 'Frontend backend target: %s\n' "$BACKEND_URL"
-  printf 'Management key: %s\n' "$LOCAL_MANAGEMENT_PASSWORD"
   printf 'Logs: %s | %s\n' "$BACKEND_LOG" "$FRONTEND_LOG"
   printf 'Press Ctrl+C to stop the backend and frontend.\n'
 
