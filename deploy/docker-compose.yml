@@ -1,0 +1,42 @@
+name: ${COMPOSE_PROJECT_NAME:-cockpit}
+
+x-deploy-env: &deploy-env
+  - ${DEPLOY_ENV_FILE:-./env.example}
+
+services:
+  backend:
+    image: ghcr.io/coachpo/cockpit-backend:latest
+    env_file: *deploy-env
+    command:
+      - /cockpit/cockpit
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    volumes:
+      - nacos-cache:/tmp/nacos/cache
+      - nacos-log:/tmp/nacos/log
+    restart: unless-stopped
+
+  frontend:
+    image: ghcr.io/coachpo/cockpit-frontend:latest
+    expose:
+      - "80"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+
+volumes:
+  nacos-cache:
+  nacos-log:
