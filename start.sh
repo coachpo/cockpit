@@ -7,10 +7,6 @@ BACKEND_DIR="$ROOT_DIR/backend"
 FRONTEND_DIR="$ROOT_DIR/frontend"
 RUNTIME_DIR="$ROOT_DIR/.sisyphus/local-start"
 BACKEND_BIN="$RUNTIME_DIR/cockpit"
-BACKEND_CONFIG="$RUNTIME_DIR/config.yaml"
-BACKEND_AUTH_BOOTSTRAP="$RUNTIME_DIR/auth-credentials.json"
-RUNTIME_ENV_FILE="$RUNTIME_DIR/.env"
-BACKEND_AUTH_DIR="$RUNTIME_DIR/auth"
 BACKEND_LOG="$RUNTIME_DIR/backend.log"
 FRONTEND_LOG="$RUNTIME_DIR/frontend.log"
 BACKEND_COMPOSE_FILE="$BACKEND_DIR/docker-compose.yml"
@@ -391,26 +387,27 @@ check_required_files() {
 }
 
 prepare_runtime_dir() {
-  mkdir -p "$RUNTIME_DIR" "$BACKEND_AUTH_DIR"
-  rm -f "$RUNTIME_ENV_FILE"
+  mkdir -p "$RUNTIME_DIR"
   rm -rf "$NACOS_CACHE_DIR"
   mkdir -p "$NACOS_CACHE_DIR"
   : >"$BACKEND_LOG"
   : >"$FRONTEND_LOG"
-  printf '{}\n' >"$BACKEND_AUTH_BOOTSTRAP"
 }
 
-write_backend_config() {
-  cat >"$BACKEND_CONFIG" <<EOF
+backend_config_content() {
+  cat <<EOF
 host: "${BACKEND_HOST}"
 port: ${BACKEND_PORT}
-auth-dir: "${BACKEND_AUTH_DIR}"
 request-retry: 3
 max-retry-interval: 30
 routing:
   strategy: "round-robin"
 ws-auth: false
 EOF
+}
+
+empty_auth_bootstrap_content() {
+  printf '{}\n'
 }
 
 nacos_ready() {
@@ -438,7 +435,7 @@ nacos_ports_in_use() {
 publish_nacos_document() {
   local data_id=$1
   local data_type=$2
-  local source_file=$3
+  local content=$3
   local response
   local -a curl_args=(
     --silent
@@ -450,7 +447,7 @@ publish_nacos_document() {
     --data-urlencode "dataId=${data_id}"
     --data-urlencode "group=${NACOS_GROUP}"
     --data-urlencode "type=${data_type}"
-    --data-urlencode "content@${source_file}"
+    --data-urlencode "content=${content}"
   )
 
 	if [[ -n "$NACOS_NAMESPACE" && "$NACOS_NAMESPACE" != "public" ]]; then
@@ -521,15 +518,12 @@ fetch_nacos_document() {
 }
 
 wait_for_nacos_document_content() {
-	local data_id=$1
-	local source_file=$2
-	local deadline=$((SECONDS + 30))
-	local expected_content
-	local actual_content
+  local data_id=$1
+  local expected_content=$2
+  local deadline=$((SECONDS + 30))
+  local actual_content
 
-	expected_content="$(<"$source_file")"
-
-	while (( SECONDS < deadline )); do
+  while (( SECONDS < deadline )); do
 	  actual_content="$(fetch_nacos_document "$data_id" 2>/dev/null || true)"
 	  if [[ "$actual_content" == "$expected_content" ]]; then
 	    return 0
@@ -541,12 +535,17 @@ wait_for_nacos_document_content() {
 }
 
 seed_nacos_bootstrap() {
-	local auth_status=0
+  local auth_status=0
+  local config_content
+  local empty_auth_content
 
-	if ! publish_nacos_document "$NACOS_CONFIG_DATA_ID" yaml "$BACKEND_CONFIG"; then
+  config_content="$(backend_config_content)"
+  empty_auth_content="$(empty_auth_bootstrap_content)"
+
+	if ! publish_nacos_document "$NACOS_CONFIG_DATA_ID" yaml "$config_content"; then
 	  fail "Failed to publish backend config to Nacos at $(nacos_base_url)."
 	fi
-	if ! wait_for_nacos_document_content "$NACOS_CONFIG_DATA_ID" "$BACKEND_CONFIG"; then
+	if ! wait_for_nacos_document_content "$NACOS_CONFIG_DATA_ID" "$config_content"; then
 	  fail "Published backend config was not readable from Nacos at $(nacos_base_url)."
 	fi
 
@@ -558,7 +557,7 @@ seed_nacos_bootstrap() {
 	if [[ "$auth_status" -ne 1 ]]; then
 	  fail "Failed to inspect auth bootstrap state in Nacos at $(nacos_base_url)."
 	fi
-	if ! publish_nacos_document "$NACOS_AUTH_DATA_ID" json "$BACKEND_AUTH_BOOTSTRAP"; then
+	if ! publish_nacos_document "$NACOS_AUTH_DATA_ID" json "$empty_auth_content"; then
 	  fail "Failed to publish empty auth bootstrap to Nacos at $(nacos_base_url)."
 	fi
 }
@@ -750,7 +749,6 @@ main() {
   stop_existing_stack
 
   prepare_runtime_dir
-  write_backend_config
   start_nacos_stack
   seed_nacos_bootstrap
 

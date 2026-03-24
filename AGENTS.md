@@ -34,7 +34,7 @@ Read the nearest `AGENTS.md` first. Root routes work into submodules; child file
 | Local compose/nginx deployment wiring | `deploy/AGENTS.md` | owns `docker-compose.yml`, `nginx.conf`, and deploy env bootstrap |
 | Shared image publishing | `.github/workflows/docker-images.yml` | builds both submodules from their own Dockerfiles |
 | Package cleanup automation | `.github/workflows/cleanup.yml` | prunes workflow runs and untagged GHCR images |
-| Local full-stack startup | `start.sh` | seeds local Nacos, builds backend, starts Vite dev server, and writes runtime state under `.sisyphus/local-start` |
+| Local full-stack startup | `start.sh` | seeds local Nacos directly, builds backend, starts Vite dev server, and writes runtime logs/cache under `.sisyphus/local-start` |
 | Submodule URL or branch drift | `.gitmodules` | both submodules stay pinned to `main` |
 
 ## ROOT CONVENTIONS
@@ -60,4 +60,4 @@ git -C frontend status --short
 - The root README is the quick start for humans; AGENTS files are the high-signal routing layer for agentic work.
 - Root docker publishing passes through submodule Dockerfiles instead of owning service build logic itself.
 - `deploy/` is the root-owned deployment seam; service-local runtime behavior still belongs in each submodule.
-- `start.sh` keeps local runtime logs, auth bootstrap, and generated config under `.sisyphus/local-start/`; do not treat that output as checked-in source.
+- `start.sh` keeps local runtime logs and Nacos cache under `.sisyphus/local-start/`; do not treat that output as checked-in source.
