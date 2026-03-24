@@ -300,18 +300,6 @@ stop_existing_stack() {
   done
 }
 
-stop_existing_nacos() {
-  local port
-
-  for port in "$NACOS_PORT" "$NACOS_GRPC_PORT"; do
-    stop_docker_containers_publishing_port "$port"
-  done
-
-  for port in "$NACOS_PORT" "$NACOS_GRPC_PORT"; do
-    kill_port_listeners "$port"
-  done
-}
-
 check_required_files() {
   if [[ ! -f "$BACKEND_DIR/go.mod" ]]; then
     printf 'Expected backend Go module at %s\n' "$BACKEND_DIR/go.mod" >&2
@@ -378,6 +366,10 @@ wait_for_nacos_ready() {
   done
 
   return 1
+}
+
+nacos_ports_in_use() {
+  port_is_listening "$NACOS_PORT" || port_is_listening "$NACOS_GRPC_PORT"
 }
 
 publish_nacos_document() {
@@ -509,6 +501,21 @@ seed_nacos_bootstrap() {
 }
 
 start_nacos_stack() {
+  if nacos_ready; then
+    log "Using existing Nacos at $(nacos_base_url)"
+    return
+  fi
+
+  if nacos_ports_in_use; then
+    log "Nacos ports are already in use; waiting for the existing service at $(nacos_base_url)"
+    if wait_for_nacos_ready; then
+      log "Using existing Nacos at $(nacos_base_url)"
+      return
+    fi
+
+    fail "Nacos ports ${NACOS_PORT}/${NACOS_GRPC_PORT} are in use, but the service at $(nacos_base_url) did not become ready."
+  fi
+
   if ! docker_daemon_available; then
     fail "Docker is required and the Docker daemon must be running to start Nacos."
   fi
@@ -600,7 +607,7 @@ wait_for_frontend_ready() {
 
 frontend_proxy_running() {
   curl --silent --show-error --fail --max-time 2 \
-    "${FRONTEND_URL}/v0/management/ws-auth" 2>/dev/null | grep -F 'ws-auth' >/dev/null 2>&1
+    "${FRONTEND_URL}/v0/management/runtime-settings" 2>/dev/null | grep -F '"ws-auth"' >/dev/null 2>&1
 }
 
 wait_for_frontend_proxy_ready() {
@@ -676,8 +683,6 @@ main() {
 
   printf 'Cleaning up ports %s and %s before startup\n' "$BACKEND_PORT" "$FRONTEND_PORT"
   stop_existing_stack
-  printf 'Cleaning up ports %s and %s before starting local Nacos\n' "$NACOS_PORT" "$NACOS_GRPC_PORT"
-  stop_existing_nacos
 
   prepare_runtime_dir
   write_backend_config

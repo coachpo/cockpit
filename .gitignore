@@ -1,7 +1,6 @@
 # Root meta-repo local state
 .sisyphus/
 authjson/
-docs/
 test-output
 deploy/.env
 

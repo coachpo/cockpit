@@ -30,6 +30,10 @@ If you already cloned without submodules, run the last two commands from the rep
 - `backend/` is AGENTS-first and intentionally has no tracked README
 - `frontend/` has both `AGENTS.md` and `README.md`
 
+## Surface inventory
+
+For a grounded list of what the current frontend exposes, what only exists on the management API, and what API consumers use under `/v1`, see [USER_FUNCTIONS.md](./USER_FUNCTIONS.md).
+
 ## Common root commands
 
 ```bash
