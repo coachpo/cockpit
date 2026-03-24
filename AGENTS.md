@@ -1,7 +1,7 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-23T15:48:02+02:00
-**Commit:** e9ef68af
+**Generated:** 2026-03-24T02:32:07+02:00
+**Commit:** 169f6c0a
 **Branch:** main
 
 ## OVERVIEW
@@ -21,7 +21,7 @@ Read the nearest `AGENTS.md` first. Root routes work into submodules; child file
 |- README.md            # meta-repo quick start and ownership guide
 |- start.sh             # local full-stack launcher for backend + frontend dev
 |- authjson/            # gitignored local auth material; never commit contents
-|- docs/                # gitignored scratch docs/plans, not canonical product docs
+|- docs/                # optional scratch docs/plans when used locally; not canonical product docs
 `- .sisyphus/           # gitignored local planning state
 ```
 
@@ -41,7 +41,7 @@ Read the nearest `AGENTS.md` first. Root routes work into submodules; child file
 - Do not add application source code at the root; service code belongs in `backend/` or `frontend/`.
 - Root workflows may orchestrate both services, but service-specific CI belongs in each submodule's own `.github/workflows/` directory.
 - Keep `.gitmodules` aligned with `coachpo/cockpit-backend` and `coachpo/cockpit-frontend`, both on `main`.
-- Treat `authjson/`, `docs/`, `.sisyphus/`, `test-output`, and `deploy/.env` as local-only state. They are gitignored helpers, not canonical checked-in documentation.
+- Treat `authjson/`, `.sisyphus/`, `test-output`, and `deploy/.env` as local-only state. If `docs/` is used locally, keep it as scratch space rather than canonical checked-in documentation.
 - Treat editor and agent-tool directories like `.vscode/`, `.idea/`, `.codex/`, `.claude/`, `.gemini/`, `.serena/`, `.agent/`, `.agents/`, and `.opencode/` as workstation-local noise, not repo content.
 - Verify root paths and commands against the current repo state before relying on them; this file is a routing layer, not a second copy of child docs.
 - Prefer updating submodule-local docs over expanding the root file with service-specific detail.
