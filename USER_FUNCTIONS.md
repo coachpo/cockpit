@@ -16,17 +16,17 @@ Primary anchors:
 
 | Function group | User goal | UI | Mgmt API | API consumer | Notes |
 |---|---|---|---|---|---|
-| Codex Keys | Configure Codex providers and headers | Yes | `GET/PUT /v0/management/codex-api-key` | No | UI replaces the full list; backend also supports `PATCH` and `DELETE` |
-| API Keys | Configure downstream API keys | Yes | `GET/PUT /v0/management/api-keys` | No | UI replaces the full list; backend also supports `PATCH` and `DELETE` |
+| Codex Keys | Configure Codex providers and headers | Yes | `GET/PUT /api/codex-api-key` | No | UI replaces the full list; backend also supports `PATCH` and `DELETE` |
+| API Keys | Configure downstream API keys | Yes | `GET/PUT /api/api-keys` | No | UI replaces the full list; backend also supports `PATCH` and `DELETE` |
 | Runtime Settings | Control retries, routing, websocket auth, quota failover | Yes | `GET/PUT/PATCH` on `/ws-auth`, `/request-retry`, `/max-retry-interval`, `/routing/strategy`, `/quota-exceeded/switch-project` | No | UI uses `PUT`; backend also exposes `PATCH` aliases |
-| Auth File Inventory | View managed auth files and their status | Yes | `GET /v0/management/auth-files` | No | Current list is managed stored auths, not every runtime credential |
-| Auth File Download | Export auth JSON | Yes | `GET /v0/management/auth-files/download` | No | Exposed directly in the current UI |
-| Auth File Priority | Change routing priority for an auth file | Yes | `PATCH /v0/management/auth-files/fields` | No | UI exposes priority editing only, not full metadata editing |
-| Auth File Enable/Disable | Toggle whether an auth file is active | Yes | `PATCH /v0/management/auth-files/status` | No | Exposed directly in the current UI |
-| Auth File Usage Probing | Query current usage/limits for probe-capable auth files | Yes | `POST /v0/management/api-call` | No | UI supports per-file and batch usage refresh |
-| Auth File Upload/Delete | Create or remove auth files | No | `POST/DELETE /v0/management/auth-files` | No | Backend-only today; no upload/delete controls in the SPA |
-| OAuth Start/Status | Launch Codex OAuth and poll until connected | Yes | `GET /v0/management/codex-auth-url`, `GET /v0/management/get-auth-status` | No | Current UI opens a popup and polls status |
-| OAuth Callback Ingestion | Receive provider callback payload | Indirect | `POST /v0/management/oauth-callback` | No | Not called by the UI directly; backend-only control path |
+| Auth File Inventory | View managed auth files and their status | Yes | `GET /api/auth-files` | No | Current list is managed stored auths, not every runtime credential |
+| Auth File Download | Export auth JSON | Yes | `GET /api/auth-files/download` | No | Exposed directly in the current UI |
+| Auth File Priority | Change routing priority for an auth file | Yes | `PATCH /api/auth-files/fields` | No | UI exposes priority editing only, not full metadata editing |
+| Auth File Enable/Disable | Toggle whether an auth file is active | Yes | `PATCH /api/auth-files/status` | No | Exposed directly in the current UI |
+| Auth File Usage Probing | Query current usage/limits for probe-capable auth files | Yes | `POST /api/api-call` | No | UI supports per-file and batch usage refresh |
+| Auth File Upload/Delete | Create or remove auth files | No | `POST/DELETE /api/auth-files` | No | Backend-only today; no upload/delete controls in the SPA |
+| OAuth Start/Status | Launch Codex OAuth and poll until connected | Yes | `GET /api/codex-auth-url`, `GET /api/get-auth-status` | No | Current UI opens a popup and polls status |
+| OAuth Callback Ingestion | Receive provider callback payload | Indirect | `POST /api/oauth-callback` | No | Not called by the UI directly; backend-only control path |
 | Model Discovery | List available runtime models | No | No | `GET /v1/models` | There is no current model catalog UI |
 | Chat Completions | Run OpenAI-compatible chat completions | No | No | `POST /v1/chat/completions` | Also accepts Responses-style payloads and rewrites them |
 | Legacy Completions | Run legacy completions-compatible requests | No | No | `POST /v1/completions` | Compatibility layer over chat completions execution |
@@ -49,8 +49,8 @@ Exposed in `frontend/src/App.tsx` under `#codex-keys`.
 
 Current UI supports:
 
-- Load the current Codex key array from `GET /v0/management/codex-api-key`
-- Replace the full Codex key array with `PUT /v0/management/codex-api-key`
+- Load the current Codex key array from `GET /api/codex-api-key`
+- Replace the full Codex key array with `PUT /api/codex-api-key`
 - Edit JSON directly in the page
 - View redacted example payloads for `opencode` and `codex_cli_rs`
 
@@ -62,8 +62,8 @@ Exposed in `frontend/src/App.tsx` under `#api-keys`.
 
 Current UI supports:
 
-- Load API keys from `GET /v0/management/api-keys`
-- Replace the full API key list with `PUT /v0/management/api-keys`
+- Load API keys from `GET /api/api-keys`
+- Replace the full API key list with `PUT /api/api-keys`
 - Edit keys as one-per-line text
 
 Proof: `loadDashboard()` and `saveApiKeys()` in `frontend/src/App.tsx`.
@@ -74,11 +74,11 @@ Exposed in `frontend/src/App.tsx` under `#runtime`.
 
 Current UI supports:
 
-- Toggle websocket auth with `GET` and `PUT /v0/management/ws-auth`
-- Set retry count with `GET` and `PUT /v0/management/request-retry`
-- Set max retry interval with `GET` and `PUT /v0/management/max-retry-interval`
-- Set routing strategy with `GET` and `PUT /v0/management/routing/strategy`
-- Toggle switch-project-on-quota-exceeded with `GET` and `PUT /v0/management/quota-exceeded/switch-project`
+- Toggle websocket auth with `GET` and `PUT /api/ws-auth`
+- Set retry count with `GET` and `PUT /api/request-retry`
+- Set max retry interval with `GET` and `PUT /api/max-retry-interval`
+- Set routing strategy with `GET` and `PUT /api/routing/strategy`
+- Toggle switch-project-on-quota-exceeded with `GET` and `PUT /api/quota-exceeded/switch-project`
 
 Proof: `loadDashboard()`, `saveRuntimeSettings()`, and the mounted routes in `backend/internal/api/server_management.go`.
 
@@ -88,13 +88,13 @@ Exposed in `frontend/src/App.tsx` under `#auth-files`.
 
 Current UI supports:
 
-- List auth files with `GET /v0/management/auth-files`
-- Download a file with `GET /v0/management/auth-files/download?name=...`
-- Start Codex OAuth with `GET /v0/management/codex-auth-url?is_webui=true`
-- Poll OAuth status with `GET /v0/management/get-auth-status?state=...`
-- Toggle disabled state with `PATCH /v0/management/auth-files/status`
-- Edit auth file priority with `PATCH /v0/management/auth-files/fields`
-- Query usage for one file or all probe-capable files through `POST /v0/management/api-call`
+- List auth files with `GET /api/auth-files`
+- Download a file with `GET /api/auth-files/download?name=...`
+- Start Codex OAuth with `GET /api/codex-auth-url?is_webui=true`
+- Poll OAuth status with `GET /api/get-auth-status?state=...`
+- Toggle disabled state with `PATCH /api/auth-files/status`
+- Edit auth file priority with `PATCH /api/auth-files/fields`
+- Query usage for one file or all probe-capable files through `POST /api/api-call`
 
 Proof: `downloadAuthFile()`, `startOAuth()`, `saveAuthFileDetails()`, `toggleAuthFileDisabled()`, `queryAuthFileUsage()`, and `queryAllAuthFileUsage()` in `frontend/src/App.tsx` plus usage-probe helpers in `frontend/src/lib/auth-file-usage.ts`.
 
@@ -106,8 +106,8 @@ The backend mounts more management operations than the frontend currently render
 
 Available in the backend, not exposed in the current UI:
 
-- `POST /v0/management/auth-files` to upload or create an auth JSON file
-- `DELETE /v0/management/auth-files` to delete one or more auth files
+- `POST /api/auth-files` to upload or create an auth JSON file
+- `DELETE /api/auth-files` to delete one or more auth files
 
 The current frontend `Auth Files` section lists, downloads, toggles, edits priority, and probes usage, but it does not render upload or delete controls in `frontend/src/App.tsx`.
 
@@ -115,10 +115,10 @@ The current frontend `Auth Files` section lists, downloads, toggles, edits prior
 
 Available in the backend, but the current UI does not use them:
 
-- `PATCH /v0/management/api-keys`
-- `DELETE /v0/management/api-keys`
-- `PATCH /v0/management/codex-api-key`
-- `DELETE /v0/management/codex-api-key`
+- `PATCH /api/api-keys`
+- `DELETE /api/api-keys`
+- `PATCH /api/codex-api-key`
+- `DELETE /api/codex-api-key`
 
 The current UI only replaces full lists with `PUT`.
 
@@ -126,11 +126,11 @@ The current UI only replaces full lists with `PUT`.
 
 Mounted in the backend and documented in OpenAPI, but not used by the current UI:
 
-- `PATCH /v0/management/ws-auth`
-- `PATCH /v0/management/request-retry`
-- `PATCH /v0/management/max-retry-interval`
-- `PATCH /v0/management/routing/strategy`
-- `PATCH /v0/management/quota-exceeded/switch-project`
+- `PATCH /api/ws-auth`
+- `PATCH /api/request-retry`
+- `PATCH /api/max-retry-interval`
+- `PATCH /api/routing/strategy`
+- `PATCH /api/quota-exceeded/switch-project`
 
 The current UI uses `PUT` for these writes.
 
@@ -138,7 +138,7 @@ The current UI uses `PUT` for these writes.
 
 Available in the backend, not a direct UI action:
 
-- `POST /v0/management/oauth-callback`
+- `POST /api/oauth-callback`
 
 The frontend starts OAuth and polls status. It does not call the callback endpoint itself.
 
@@ -173,14 +173,14 @@ The current frontend management client is same-origin and does not inject auth o
 Proof:
 
 - `frontend/src/lib/management-api.ts` builds relative URLs from `MANAGEMENT_BASE_PATH`
-- `frontend/src/lib/management-api.test.ts` asserts requests go to `/v0/management/...`
+- `frontend/src/lib/management-api.test.ts` asserts requests go to `/api/...`
 - the same test asserts no `Authorization` header is sent
 
 This means the frontend expects same-origin routing or proxying, not a browser-managed management token flow from this code.
 
-### Current trimmed `/v0/management` surface is mounted without request-access middleware
+### Current trimmed `/api` surface is mounted without request-access middleware
 
-The current backend route wiring mounts `/v0/management` directly in `backend/internal/api/server_management.go`, and the local management handler rules explicitly note that the trimmed management surface is mounted without request-access middleware.
+The current backend route wiring mounts `/api` directly in `backend/internal/api/server_management.go`, and the local management handler rules explicitly note that the trimmed management surface is mounted without request-access middleware.
 
 That is different from the `/v1` surface, which is wrapped with `AuthMiddleware` in `backend/internal/api/server_routes.go`.
 
@@ -191,7 +191,7 @@ The current frontend does not render or request a standalone model catalog.
 Proof:
 
 - UI sections in `frontend/src/App.tsx` contain only Codex Keys, API Keys, Runtime Settings, and Auth Files
-- `frontend/src/App.test.tsx` asserts no request to `/v0/management/model-definitions/codex`
+- `frontend/src/App.test.tsx` asserts no request to `/api/model-definitions/codex`
 - the same test asserts no `#model-catalog` section is rendered
 
 ### Auth file upload and delete exist only in the backend right now

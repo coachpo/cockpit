@@ -607,7 +607,7 @@ wait_for_frontend_ready() {
 
 frontend_proxy_running() {
   curl --silent --show-error --fail --max-time 2 \
-    "${FRONTEND_URL}/v0/management/runtime-settings" 2>/dev/null | grep -F '"ws-auth"' >/dev/null 2>&1
+    "${FRONTEND_URL}/api/runtime-settings" 2>/dev/null | grep -F '"ws-auth"' >/dev/null 2>&1
 }
 
 wait_for_frontend_proxy_ready() {
