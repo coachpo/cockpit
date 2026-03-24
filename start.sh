@@ -19,10 +19,11 @@ NACOS_AUTH_DATA_ID="auth-credentials"
 NACOS_PORT="8848"
 NACOS_GRPC_PORT="9848"
 
-BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
+BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-38317}"
-FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 FRONTEND_PORT="${FRONTEND_PORT:-35173}"
+PUBLIC_HOST="${PUBLIC_HOST:-}"
 NACOS_ADDR="${NACOS_ADDR:-}"
 NACOS_NAMESPACE="${NACOS_NAMESPACE:-public}"
 NACOS_GROUP="${NACOS_GROUP:-DEFAULT_GROUP}"
@@ -34,6 +35,8 @@ BACKEND_PUBLIC_HOST=""
 FRONTEND_PUBLIC_HOST=""
 BACKEND_URL=""
 FRONTEND_URL=""
+BACKEND_PUBLIC_URL=""
+FRONTEND_PUBLIC_URL=""
 
 backend_pid=""
 frontend_pid=""
@@ -151,6 +154,66 @@ probe_host() {
   case "$host" in
     0.0.0.0|"")
       printf '127.0.0.1'
+      ;;
+    *)
+      printf '%s' "$host"
+      ;;
+  esac
+}
+
+public_host() {
+  local host=$1
+  local detected_host
+
+  detect_public_ipv4() {
+    local route_output
+    local route_host
+    local resolved_host
+
+    if command -v ip >/dev/null 2>&1; then
+      route_output="$(ip route get 1.1.1.1 2>/dev/null || true)"
+      route_host="$(grep -oE 'src [0-9]+(\.[0-9]+){3}' <<<"$route_output" | head -n 1 | cut -d' ' -f2)"
+      if [[ -n "$route_host" ]]; then
+        printf '%s' "$route_host"
+        return 0
+      fi
+    fi
+
+    if command -v getent >/dev/null 2>&1; then
+      resolved_host="$(getent ahostsv4 "$(hostname)" 2>/dev/null | awk 'NR == 1 { print $1 }')"
+      if [[ -n "$resolved_host" ]]; then
+        printf '%s' "$resolved_host"
+        return 0
+      fi
+    fi
+
+    if command -v hostname >/dev/null 2>&1; then
+      resolved_host="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+(\.[0-9]+){3}$' | head -n 1)"
+      if [[ -n "$resolved_host" ]]; then
+        printf '%s' "$resolved_host"
+        return 0
+      fi
+    fi
+
+    return 1
+  }
+
+  case "$host" in
+    0.0.0.0)
+      if [[ -n "$PUBLIC_HOST" ]]; then
+        printf '%s' "$PUBLIC_HOST"
+      elif detected_host="$(detect_public_ipv4)"; then
+        printf '%s' "$detected_host"
+      else
+        printf '0.0.0.0'
+      fi
+      ;;
+    "")
+      if [[ -n "$PUBLIC_HOST" ]]; then
+        printf '%s' "$PUBLIC_HOST"
+      else
+        printf '127.0.0.1'
+      fi
       ;;
     *)
       printf '%s' "$host"
@@ -676,10 +739,12 @@ main() {
 
   NACOS_ADDR="$(normalize_nacos_addr "127.0.0.1:${NACOS_PORT}")"
 
-  BACKEND_PUBLIC_HOST="$(probe_host "$BACKEND_HOST")"
-  FRONTEND_PUBLIC_HOST="$(probe_host "$FRONTEND_HOST")"
-  BACKEND_URL="http://${BACKEND_PUBLIC_HOST}:${BACKEND_PORT}"
-  FRONTEND_URL="http://${FRONTEND_PUBLIC_HOST}:${FRONTEND_PORT}"
+  BACKEND_PUBLIC_HOST="$(public_host "$BACKEND_HOST")"
+  FRONTEND_PUBLIC_HOST="$(public_host "$FRONTEND_HOST")"
+  BACKEND_URL="http://$(probe_host "$BACKEND_HOST"):${BACKEND_PORT}"
+  FRONTEND_URL="http://$(probe_host "$FRONTEND_HOST"):${FRONTEND_PORT}"
+  BACKEND_PUBLIC_URL="http://${BACKEND_PUBLIC_HOST}:${BACKEND_PORT}"
+  FRONTEND_PUBLIC_URL="http://${FRONTEND_PUBLIC_HOST}:${FRONTEND_PORT}"
 
   printf 'Cleaning up ports %s and %s before startup\n' "$BACKEND_PORT" "$FRONTEND_PORT"
   stop_existing_stack
@@ -695,7 +760,7 @@ main() {
     go build -o "$BACKEND_BIN" ./cmd/cockpit
   )
 
-	printf 'Starting backend on %s\n' "$BACKEND_URL"
+	printf 'Starting backend on %s\n' "$BACKEND_PUBLIC_URL"
 	(
 	  cd "$RUNTIME_DIR"
 	  export NACOS_ADDR NACOS_NAMESPACE NACOS_GROUP NACOS_USERNAME NACOS_PASSWORD NACOS_CACHE_DIR
@@ -710,7 +775,7 @@ main() {
     exit 1
   fi
 
-  printf 'Starting frontend on %s\n' "$FRONTEND_URL"
+  printf 'Starting frontend on %s\n' "$FRONTEND_PUBLIC_URL"
   (
     cd "$FRONTEND_DIR"
     export COCKPIT_LOCAL_BACKEND_URL="$BACKEND_URL"
@@ -732,7 +797,12 @@ main() {
     exit 1
   fi
 
-  printf 'Frontend backend target: %s\n' "$BACKEND_URL"
+  printf 'Frontend local backend target: %s\n' "$BACKEND_URL"
+  printf 'Backend public URL: %s\n' "$BACKEND_PUBLIC_URL"
+  printf 'Frontend public URL: %s\n' "$FRONTEND_PUBLIC_URL"
+  if [[ -z "$PUBLIC_HOST" ]] && { [[ "$BACKEND_PUBLIC_HOST" == "0.0.0.0" ]] || [[ "$FRONTEND_PUBLIC_HOST" == "0.0.0.0" ]]; }; then
+    printf "Remote clients should replace 0.0.0.0 with this machine's IP or hostname, or set PUBLIC_HOST to print it directly.\n"
+  fi
   printf 'Logs: %s | %s\n' "$BACKEND_LOG" "$FRONTEND_LOG"
   printf 'Press Ctrl+C to stop the backend and frontend.\n'
 
