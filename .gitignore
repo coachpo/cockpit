@@ -1,4 +1,4 @@
-# Root meta-repo local state
+# Root monorepo local state
 .sisyphus/
 authjson/
 test-output

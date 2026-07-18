@@ -1,0 +1,259 @@
+package management
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/coachpo/cockpit-backend/internal/auth/codex"
+	"github.com/coachpo/cockpit-backend/internal/nacos"
+	coreauth "github.com/coachpo/cockpit-backend/sdk/cockpit/auth"
+	"github.com/gin-gonic/gin"
+	log "github.com/sirupsen/logrus"
+)
+
+func (h *Handler) ListAuthFiles(c *gin.Context) {
+	if h == nil {
+		c.JSON(500, gin.H{"error": "handler not initialized"})
+		return
+	}
+	if h.authManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
+		return
+	}
+	metadataByName := map[string]nacos.AuthFileMetadata{}
+	if h.authStore != nil {
+		metadataByName = h.authMetadataByName(c.Request.Context())
+	}
+	auths := h.authManager.List()
+	files := make([]gin.H, 0, len(auths))
+	for _, auth := range auths {
+		if entry := h.buildAuthFileEntry(auth, metadataByName); entry != nil {
+			files = append(files, entry)
+		}
+	}
+	sort.Slice(files, func(i, j int) bool {
+		nameI, _ := files[i]["name"].(string)
+		nameJ, _ := files[j]["name"].(string)
+		return strings.ToLower(nameI) < strings.ToLower(nameJ)
+	})
+	c.JSON(200, gin.H{"items": files})
+}
+func (h *Handler) authMetadataByName(ctx context.Context) map[string]nacos.AuthFileMetadata {
+	items, err := h.authStore.ListMetadata(ctx)
+	if err != nil {
+		log.WithError(err).Warn("failed to load auth metadata from store")
+		return nil
+	}
+	result := make(map[string]nacos.AuthFileMetadata, len(items))
+	for _, item := range items {
+		result[strings.TrimSpace(item.Name)] = item
+	}
+	return result
+}
+
+func (h *Handler) buildAuthFileEntry(auth *coreauth.Auth, metadataByName map[string]nacos.AuthFileMetadata) gin.H {
+	if auth == nil {
+		return nil
+	}
+	if !isManagedStoredAuth(auth) {
+		return nil
+	}
+	auth.EnsureIndex()
+	runtimeOnly := isRuntimeOnlyAuth(auth)
+	removedByManagement := !runtimeOnly && (auth.Disabled || auth.Status == coreauth.StatusDisabled) && strings.EqualFold(strings.TrimSpace(auth.StatusMessage), "removed via management API")
+	if runtimeOnly && (auth.Disabled || auth.Status == coreauth.StatusDisabled) {
+		return nil
+	}
+	if removedByManagement {
+		return nil
+	}
+	name := strings.TrimSpace(auth.FileName)
+	if name == "" {
+		return nil
+	}
+	status := strings.TrimSpace(string(auth.Status))
+	if status == "" {
+		if auth.Disabled {
+			status = string(coreauth.StatusDisabled)
+		} else {
+			status = string(coreauth.StatusActive)
+		}
+	}
+	entry := gin.H{
+		"id":             auth.ID,
+		"auth_index":     auth.Index,
+		"name":           name,
+		"type":           strings.TrimSpace(auth.Provider),
+		"provider":       strings.TrimSpace(auth.Provider),
+		"label":          auth.Label,
+		"status":         status,
+		"status_message": auth.StatusMessage,
+		"disabled":       auth.Disabled,
+		"unavailable":    auth.Unavailable,
+		"runtime_only":   runtimeOnly,
+		"size":           int64(0),
+	}
+	if item, ok := metadataByName[name]; ok {
+		entry["size"] = item.Size
+		if !item.ModTime.IsZero() {
+			entry["modtime"] = item.ModTime
+		}
+	}
+	if email := authEmail(auth); email != "" {
+		entry["email"] = email
+	}
+	if accountType, account := auth.AccountInfo(); accountType != "" || account != "" {
+		if accountType != "" {
+			entry["account_type"] = accountType
+		}
+		if account != "" {
+			entry["account"] = account
+		}
+	}
+	if !auth.CreatedAt.IsZero() {
+		entry["created_at"] = auth.CreatedAt
+	}
+	if !auth.UpdatedAt.IsZero() {
+		entry["modtime"] = auth.UpdatedAt
+		entry["updated_at"] = auth.UpdatedAt
+	}
+	if !auth.LastRefreshedAt.IsZero() {
+		entry["last_refresh"] = auth.LastRefreshedAt
+	}
+	if !auth.NextRetryAfter.IsZero() {
+		entry["next_retry_after"] = auth.NextRetryAfter
+	}
+	if claims := extractCodexIDTokenClaims(auth); claims != nil {
+		entry["id_token"] = claims
+	}
+	if auth.Metadata != nil {
+		if usage, ok := auth.Metadata["usage"]; ok && usage != nil {
+			entry["usage"] = usage
+		}
+	}
+	if usageRequest := buildAuthFileUsageRequest(auth); usageRequest != nil {
+		entry["usage_available"] = true
+	}
+	// Expose priority from Attributes (set by synthesizer from JSON "priority" field).
+	// Fall back to Metadata for auths registered via UploadAuthFile (no synthesizer).
+	if p := strings.TrimSpace(authAttribute(auth, "priority")); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil {
+			entry["priority"] = parsed
+		}
+	} else if auth.Metadata != nil {
+		if rawPriority, ok := auth.Metadata["priority"]; ok {
+			switch v := rawPriority.(type) {
+			case float64:
+				entry["priority"] = int(v)
+			case int:
+				entry["priority"] = v
+			case string:
+				if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+					entry["priority"] = parsed
+				}
+			}
+		}
+	}
+	return entry
+}
+
+func extractCodexIDTokenClaims(auth *coreauth.Auth) gin.H {
+	if auth == nil || auth.Metadata == nil {
+		return nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") {
+		return nil
+	}
+	idTokenRaw, ok := auth.Metadata["id_token"].(string)
+	if !ok {
+		return nil
+	}
+	idToken := strings.TrimSpace(idTokenRaw)
+	if idToken == "" {
+		return nil
+	}
+	claims, err := codex.ParseJWTToken(idToken)
+	if err != nil || claims == nil {
+		return nil
+	}
+
+	result := gin.H{}
+	if v := strings.TrimSpace(claims.CodexAuthInfo.ChatgptAccountID); v != "" {
+		result["chatgpt_account_id"] = v
+	}
+	if v := strings.TrimSpace(claims.CodexAuthInfo.ChatgptPlanType); v != "" {
+		result["plan_type"] = v
+	}
+	if v := claims.CodexAuthInfo.ChatgptSubscriptionActiveStart; v != nil {
+		result["chatgpt_subscription_active_start"] = v
+	}
+	if v := claims.CodexAuthInfo.ChatgptSubscriptionActiveUntil; v != nil {
+		result["chatgpt_subscription_active_until"] = v
+	}
+	if result["chatgpt_subscription_active_start"] != nil || result["chatgpt_subscription_active_until"] != nil {
+		result["subscription"] = "active"
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func authFileNameParam(c *gin.Context) (string, bool) {
+	name := strings.TrimSpace(c.Param("name"))
+	if name == "" || strings.ContainsRune(name, '/') || strings.ContainsRune(name, '\\') {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid name"})
+		return "", false
+	}
+	return name, true
+}
+
+func (h *Handler) GetAuthFileContent(c *gin.Context) {
+	name, ok := authFileNameParam(c)
+	if !ok {
+		return
+	}
+	if strings.TrimSpace(name) == "" {
+		c.JSON(400, gin.H{"error": "invalid name"})
+		return
+	}
+	if h.authStore == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "auth store unavailable"})
+		return
+	}
+	data, err := h.authStore.ReadByName(c.Request.Context(), name)
+	if err != nil {
+		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth file: %v", err)})
+		return
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", name))
+	c.Data(200, "application/json", data)
+}
+
+func (h *Handler) findManagedAuth(name string) *coreauth.Auth {
+	if h == nil || h.authManager == nil {
+		return nil
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	auths := h.authManager.List()
+	for _, auth := range auths {
+		if auth == nil {
+			continue
+		}
+		if !isManagedStoredAuth(auth) {
+			continue
+		}
+		if strings.TrimSpace(auth.FileName) == name {
+			return auth
+		}
+	}
+	return nil
+}

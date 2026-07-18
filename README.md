@@ -1,31 +1,26 @@
-# Cockpit meta-repo
+# Cockpit monorepo
 
-This repository pins the published Cockpit backend and frontend repositories as submodules and owns only the shared automation that spans both services.
+This repository directly tracks the Cockpit backend and frontend source trees together with the shared automation that spans both services.
 
 ## Layout
 
 - `backend/` — Cockpit v6 Go backend and embeddable SDK
 - `frontend/` — React + Vite management WebUI
-- `.github/workflows/` — root-level Docker publish and cleanup workflows
-- `.gitmodules` — submodule URLs and `main` branch pins
+- `.github/workflows/` — monorepo CI, release, Docker publish, and cleanup workflows
 
-## Clone and sync
+## Clone
 
 ```bash
-git clone --recursive git@github.com:coachpo/cockpit.git
-git submodule sync --recursive
-git submodule update --init --recursive
+git clone git@github.com:coachpo/cockpit.git
 ```
-
-If you already cloned without submodules, run the last two commands from the repo root.
 
 ## Where to work
 
 - Backend implementation or API changes: start in `backend/AGENTS.md`
 - Frontend UI or WebUI build changes: start in `frontend/AGENTS.md`
-- Root changes should stay limited to submodule wiring and shared automation
+- Root changes should stay focused on shared automation and cross-service integration
 
-## Submodule docs
+## Service docs
 
 - `backend/` is AGENTS-first and intentionally has no tracked README
 - `frontend/` has both `AGENTS.md` and `README.md`
@@ -37,17 +32,16 @@ For a grounded list of what the current frontend exposes, what only exists on th
 ## Common root commands
 
 ```bash
-git submodule sync --recursive
-git submodule update --init --recursive
-git -C backend status --short
-git -C frontend status --short
+git status --short
+go -C backend test ./...
+pnpm --dir frontend lint
+pnpm --dir frontend build
 ```
 
 ## Workflow ownership
 
-- Root: `.github/workflows/docker-images.yml`, `.github/workflows/cleanup.yml`
-- Backend CI: `backend/.github/workflows/ci.yml`
-- Frontend CI: `frontend/.github/workflows/ci.yml`
+- Active monorepo automation: `.github/workflows/`
+- Imported service workflow definitions remain under each service for reference; GitHub executes the adapted root workflows.
 
 ## Local-only directories
 

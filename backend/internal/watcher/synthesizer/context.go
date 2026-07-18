@@ -1,0 +1,17 @@
+package synthesizer
+
+import (
+	"time"
+
+	"github.com/coachpo/cockpit-backend/internal/config"
+)
+
+// SynthesisContext provides the context needed for auth synthesis.
+type SynthesisContext struct {
+	// Config is the current configuration
+	Config *config.Config
+	// Now is the current time for timestamps
+	Now time.Time
+	// IDGenerator generates stable IDs for auth entries
+	IDGenerator *StableIDGenerator
+}
