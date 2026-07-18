@@ -1,54 +1,32 @@
-# Cockpit monorepo
+# Cockpit
 
-This repository directly tracks the Cockpit backend and frontend source trees together with the shared automation that spans both services.
+Cockpit fronts Codex with an OpenAI-compatible API: a Go proxy that manages Codex OAuth, forwards requests, and relays websocket traffic, with config and auth state that hot-reload from Nacos. It ships as a Go service with an embeddable SDK, plus a React management WebUI — this monorepo tracks all of it.
 
 ## Layout
 
-- `backend/` — Cockpit v6 Go backend and embeddable SDK
+- `backend/` — Go service and embeddable SDK: OAuth flow, OpenAI-compatible surface, Nacos-backed config/auth, websocket relay
 - `frontend/` — React + Vite management WebUI
-- `.github/workflows/` — monorepo CI, release, Docker publish, and cleanup workflows
+- `.github/workflows/` — monorepo CI, release, Docker publish, and cleanup
 
-## Clone
+## Getting around
 
 ```bash
 git clone git@github.com:coachpo/cockpit.git
 ```
 
-## Where to work
+- Backend or API changes: start from `backend/AGENTS.md` — the backend is documented AGENTS-first and intentionally has no separate README
+- Frontend changes: start from `frontend/AGENTS.md` or `frontend/README.md`
+- What the frontend exposes, what only exists on the management API, and what `/v1` consumers use: see [USER_FUNCTIONS.md](./USER_FUNCTIONS.md)
 
-- Backend implementation or API changes: start in `backend/AGENTS.md`
-- Frontend UI or WebUI build changes: start in `frontend/AGENTS.md`
-- Root changes should stay focused on shared automation and cross-service integration
-
-## Service docs
-
-- `backend/` is AGENTS-first and intentionally has no tracked README
-- `frontend/` has both `AGENTS.md` and `README.md`
-
-## Surface inventory
-
-For a grounded list of what the current frontend exposes, what only exists on the management API, and what API consumers use under `/v1`, see [USER_FUNCTIONS.md](./USER_FUNCTIONS.md).
-
-## Common root commands
+## Everyday commands
 
 ```bash
-git status --short
 go -C backend test ./...
 pnpm --dir frontend lint
 pnpm --dir frontend build
 ```
 
-## Workflow ownership
+## Notes
 
-- Active monorepo automation: `.github/workflows/`
-- Imported service workflow definitions remain under each service for reference; GitHub executes the adapted root workflows.
-
-## Local-only directories
-
-The root `.gitignore` keeps the following out of version control:
-
-- `authjson/` — local auth material
-- `docs/` — scratch docs and plans
-- `.sisyphus/` — local planning state
-
-Do not treat those directories as canonical product documentation.
+- The root workflows in `.github/workflows/` are the ones GitHub executes; workflow copies inside each service are kept for reference only.
+- `authjson/`, `docs/`, and `.sisyphus/` are gitignored local scratch, not product documentation.
