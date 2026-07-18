@@ -1,5 +1,7 @@
 # Cockpit
 
+English | [简体中文](README_CN.md)
+
 Cockpit fronts Codex with an OpenAI-compatible API: a Go proxy that manages Codex OAuth, forwards requests, and relays websocket traffic, with config and auth state that hot-reload from Nacos. It ships as a Go service with an embeddable SDK, plus a React management WebUI — this monorepo tracks all of it.
 
 ## Layout
