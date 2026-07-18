@@ -1,0 +1,517 @@
+openapi: 3.0.3
+info:
+  title: Cockpit Management API
+  version: 7.0.0
+  description: Resource-oriented management API for Cockpit.
+servers:
+  - url: /api
+    description: Local management server
+
+components:
+  schemas:
+    StatusOk:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+
+    RuntimeSettings:
+      type: object
+      required:
+        - ws-auth
+        - request-retry
+        - max-retry-interval
+        - routing-strategy
+        - switch-project
+      properties:
+        ws-auth:
+          type: boolean
+        request-retry:
+          type: integer
+        max-retry-interval:
+          type: integer
+        routing-strategy:
+          type: string
+          enum: [round-robin, fill-first]
+        switch-project:
+          type: boolean
+
+    APIKeysEnvelope:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: string
+
+    AuthFile:
+      type: object
+      properties:
+        id:
+          type: string
+        auth_index:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        provider:
+          type: string
+        label:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+        status_message:
+          type: string
+        disabled:
+          type: boolean
+        unavailable:
+          type: boolean
+        runtime_only:
+          type: boolean
+        size:
+          type: integer
+        modtime:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_refresh:
+          type: string
+          format: date-time
+        priority:
+          type: integer
+        usage:
+          type: object
+          additionalProperties: true
+        usage_available:
+          type: boolean
+
+    AuthFilesEnvelope:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuthFile'
+
+    CreateAuthFileRequest:
+      type: object
+      required: [name, content]
+      properties:
+        name:
+          type: string
+        content:
+          type: object
+          additionalProperties: true
+
+    AuthFileCreateResponse:
+      type: object
+      required: [status, name]
+      properties:
+        status:
+          type: string
+          example: ok
+        name:
+          type: string
+
+    AuthFilePatchRequest:
+      type: object
+      properties:
+        disabled:
+          type: boolean
+        priority:
+          type: integer
+          nullable: true
+
+    AuthFileDeleteResponse:
+      type: object
+      required: [status, name]
+      properties:
+        status:
+          type: string
+          example: ok
+        name:
+          type: string
+
+    OAuthSessionCreateRequest:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          enum: [codex]
+
+    OAuthSessionCreateResponse:
+      type: object
+      required: [status, state, url]
+      properties:
+        status:
+          type: string
+          example: ok
+        state:
+          type: string
+        url:
+          type: string
+          format: uri
+
+    OAuthSessionStatusResponse:
+      type: object
+      required: [status, provider, state]
+      properties:
+        status:
+          type: string
+          enum: [pending, complete, error]
+        provider:
+          type: string
+          enum: [codex]
+        state:
+          type: string
+        error:
+          type: string
+        auth_file:
+          type: string
+
+    HTMLPage:
+      type: string
+
+paths:
+  /runtime-settings:
+    get:
+      summary: Get runtime management settings
+      responses:
+        '200':
+          description: Current runtime settings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSettings'
+    put:
+      summary: Replace runtime management settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuntimeSettings'
+      responses:
+        '200':
+          description: Settings updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Invalid settings payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api-keys:
+    get:
+      summary: Get configured downstream API keys
+      responses:
+        '200':
+          description: API key collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIKeysEnvelope'
+    put:
+      summary: Replace configured downstream API keys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/APIKeysEnvelope'
+      responses:
+        '200':
+          description: API keys updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /auth-files:
+    get:
+      summary: List managed auth files
+      responses:
+        '200':
+          description: Auth file collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthFilesEnvelope'
+    post:
+      summary: Create or upload an auth file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAuthFileRequest'
+      responses:
+        '200':
+          description: Auth file created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthFileCreateResponse'
+        '400':
+          description: Invalid auth file payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth-files/{name}/content:
+    get:
+      summary: Download auth file content
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Raw auth file JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="file.json"
+        '404':
+          description: Auth file not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth-files/{name}:
+    patch:
+      summary: Update editable auth file fields
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthFilePatchRequest'
+      responses:
+        '200':
+          description: Auth file updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+        '400':
+          description: Invalid auth file mutation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Auth file not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Delete an auth file
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Auth file deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthFileDeleteResponse'
+        '404':
+          description: Auth file not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth-files/{name}/usage:
+    post:
+      summary: Refresh usage for a probe-capable auth file
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Refreshed usage payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          description: Auth file not found or has no usage probe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /oauth-sessions:
+    post:
+      summary: Start a backend-owned OAuth session
+      description: Creates an OAuth session and returns a provider authorization URL that redirects back to the backend callback endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthSessionCreateRequest'
+      responses:
+        '200':
+          description: OAuth session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthSessionCreateResponse'
+        '400':
+          description: Invalid provider or request origin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/callback:
+    servers:
+      - url: /
+        description: Backend callback origin
+    get:
+      summary: Complete the backend-owned OAuth callback
+      description: Primary OAuth popup callback endpoint. The frontend should continue polling GET /api/oauth-sessions/{state} for completion status.
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: code
+          schema:
+            type: string
+        - in: query
+          name: error
+          schema:
+            type: string
+        - in: query
+          name: error_description
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML success or provider-error page for the popup window
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/HTMLPage'
+        '400':
+          description: Invalid callback parameters
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/HTMLPage'
+        '404':
+          description: OAuth session not found
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/HTMLPage'
+        '409':
+          description: OAuth session already completed or conflicted
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/HTMLPage'
+        '410':
+          description: OAuth session expired
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/HTMLPage'
+        '500':
+          description: Failed to finalize the OAuth session
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/HTMLPage'
+        '502':
+          description: Failed to exchange the authorization code for tokens
+          content:
+            text/html:
+              schema:
+                $ref: '#/components/schemas/HTMLPage'
+
+  /oauth-sessions/{state}:
+    get:
+      summary: Get OAuth session status
+      parameters:
+        - in: path
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current OAuth session status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthSessionStatusResponse'
+        '404':
+          description: OAuth session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: OAuth session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

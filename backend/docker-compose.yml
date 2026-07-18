@@ -1,0 +1,22 @@
+name: cockpit
+
+services:
+  nacos:
+    image: ${NACOS_IMAGE:-nacos/nacos-server:v2.5.1}
+    container_name: nacos
+    environment:
+      MODE: standalone
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/console/health/readiness"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      - nacos-data:/home/nacos/data
+    restart: unless-stopped
+
+volumes:
+  nacos-data:
